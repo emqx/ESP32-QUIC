@@ -1,0 +1,3 @@
+[submodule "components/ngtcp2/ngtcp2"]
+	path = components/ngtcp2/ngtcp2
+	url = https://github.com/ngtcp2/ngtcp2.git

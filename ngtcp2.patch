@@ -1,0 +1,39 @@
+diff --git a/crypto/includes/ngtcp2/ngtcp2_crypto_wolfssl.h b/crypto/includes/ngtcp2/ngtcp2_crypto_wolfssl.h
+index e95056de..2eb4552e 100644
+--- a/crypto/includes/ngtcp2/ngtcp2_crypto_wolfssl.h
++++ b/crypto/includes/ngtcp2/ngtcp2_crypto_wolfssl.h
+@@ -27,7 +27,7 @@
+ 
+ #include <ngtcp2/ngtcp2.h>
+ 
+-#include <wolfssl/options.h>
++//#include <wolfssl/options.h>
+ #include <wolfssl/ssl.h>
+ #include <wolfssl/quic.h>
+ 
+diff --git a/lib/ngtcp2_ksl.c b/lib/ngtcp2_ksl.c
+index 22c131a1..ae44c917 100644
+--- a/lib/ngtcp2_ksl.c
++++ b/lib/ngtcp2_ksl.c
+@@ -729,7 +729,7 @@ static void ksl_print(const ngtcp2_ksl *ksl, ngtcp2_ksl_blk *blk,
+   size_t i;
+   ngtcp2_ksl_node *node;
+ 
+-  fprintf(stderr, "LV=%zu n=%u\n", level, blk->n);
++  fprintf(stderr, "LV=%zu n=%lu\n", level, blk->n);
+ 
+   if (blk->leaf) {
+     for (i = 0; i < blk->n; ++i) {
+diff --git a/lib/ngtcp2_map.c b/lib/ngtcp2_map.c
+index e0738470..9992b719 100644
+--- a/lib/ngtcp2_map.c
++++ b/lib/ngtcp2_map.c
+@@ -115,7 +115,7 @@ void ngtcp2_map_print_distance(const ngtcp2_map *map) {
+     }
+ 
+     idx = hash(bkt->key, map->hashbits);
+-    fprintf(stderr, "@%zu hash=%zu key=%" PRIu64 " base=%zu distance=%u\n", i,
++    fprintf(stderr, "@%zu hash=%zu key=%" PRIu64 " base=%zu distance=%lu\n", i,
+             hash(bkt->key, map->hashbits), bkt->key, idx, bkt->psl);
+   }
+ }

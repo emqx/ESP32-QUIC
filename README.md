@@ -31,11 +31,12 @@ Using following components:
 1. Establish QUIC connection 
 1. Send MQTT.Connect packet then shutdown
 
+
 ## How to use example
 
 1. Select the instructions depending on Espressif chip installed on your development board:
 
-- [ESP32 Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/stable/get-started/index.html)
+   - [ESP32 Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/stable/get-started/index.html)
 
 1. Clone this repo with `git clone --recursive https://github.com/qzhuyan/POC-ESP32-QUIC.git`
 
@@ -68,7 +69,11 @@ Using following components:
 
 1. Download to the board refer to [ESP32 Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/stable/get-started/index.html)
 
-1. You should get some outputs as following from idf monitoring:
+1. Check Loggings: 
+<details>
+
+<summary> idf monitoring </summary>
+
 ```
 Starting in 2 seconds...
 Starting in 1 seconds...
@@ -210,6 +215,26 @@ I00001565 0x pkt rx pkn=11 dcid=0x type=1RTT k=0
 I00001565 0x frm rx 11 1RTT CONNECTION_CLOSE(0x1d) error_code=(unknown)(0x0) frame_type=0 reason_len=0 reason=[]
 ngtcp2_conn_read_pkt: ERR_DRAINING
 ```
+</details>
+
+<details>
+<summary> EMQX debug log </summary>
+
+``` bash
+
+2025-07-02T07:12:37.402059+00:00 [debug] version: 16777216, local_addr: 10.0.19.164:14567, remote_addr: 192.168.17.168:50619, server_name: <<"10.0.19.164">>, conn: #Ref<0.2617253814.2250375168.142871>, crypto_buffer: <<1,0,1,61,3,3,23,238,71,55,105,165,33,227,94,131,143,243,30,203,102,15,89,143,132,160,78,112,33,154,246,233,190,23,28,13,37,129,0,0,32,19,2,19,1,192,44,192,43,192,48,192,47,192,39,192,35,192,40,192,36,192,10,192,9,192,8,192,20,192,19,192,18,1,0,0,244,255,165,0,27,15,0,5,4,128,2,0,0,4,4,128,16,0,0,9,1,3,17,...>>, alpns: <<"mqtt">>, client_alpns: <<4,109,113,116,116>>
+2025-07-02T07:12:38.257067+00:00 [debug] is_resumed: false, alpns: <<"mqtt">>
+2025-07-02T07:12:38.257403+00:00 [debug] tag: MQTT, msg: raw_bin_received, peername: 192.168.17.168:50619, size: 63, type: hex, bin: 103D00044D5154540502012C051100000000002B636F6E76696E63696E672D6A656C6C79666973685F45535033325F7075625F313438333032343633335F31
+2025-07-02T07:12:38.257657+00:00 [debug] tag: MQTT, clientid: convincing-jellyfish_ESP32_pub_1483024633_1, msg: mqtt_packet_received, peername: 192.168.17.168:50619, packet: CONNECT(Q0, R0, D0, ClientId=convincing-jellyfish_ESP32_pub_1483024633_1, ProtoName=MQTT, ProtoVsn=5, CleanStart=true, KeepAlive=300, Username=undefined, Password=)
+2025-07-02T07:12:38.258279+00:00 [debug] clientid: convincing-jellyfish_ESP32_pub_1483024633_1, msg: insert_channel_info, peername: 192.168.17.168:50619
+2025-07-02T07:12:38.258387+00:00 [debug] tag: MQTT, clientid: convincing-jellyfish_ESP32_pub_1483024633_1, msg: mqtt_packet_sent, peername: 192.168.17.168:50619, packet: CONNACK(Q0, R0, D0, AckFlags=0, ReasonCode=0)
+2025-07-02T07:12:38.493229+00:00 [debug] tag: SOCKET, clientid: convincing-jellyfish_ESP32_pub_1483024633_1, msg: emqx_connection_terminated, peername: 192.168.17.168:50619, reason: {shutdown,normal}
+2025-07-02T07:12:38.493440+00:00 [info] clientid: convincing-jellyfish_ESP32_pub_1483024633_1, msg: terminate, peername: 192.168.17.168:50619, reason: {shutdown,normal}
+2025-07-02T07:12:38.493768+00:00 [debug] msg: emqx_cm_clean_down, client_id: <<"convincing-jellyfish_ESP32_pub_1483024633_1">>
+2025-07-02T07:12:44.536028+00:00 [debug] is_peer_acked: false, is_app_closing: false, is_handshake_completed: true
+```
+
+<details>
 
 ## Source
 

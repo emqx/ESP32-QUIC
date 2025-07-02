@@ -63,7 +63,6 @@ Using following components:
 
 1. After success build:
   ```
-  ...
   quic_demo.bin binary size 0x16d060 bytes. Smallest app partition is 0x1a9000 bytes. 0x3bfa0 bytes (14%) free.
   ```
 
@@ -233,7 +232,6 @@ ngtcp2_conn_read_pkt: ERR_DRAINING
 2025-07-02T07:12:38.493768+00:00 [debug] msg: emqx_cm_clean_down, client_id: <<"convincing-jellyfish_ESP32_pub_1483024633_1">>
 2025-07-02T07:12:44.536028+00:00 [debug] is_peer_acked: false, is_app_closing: false, is_handshake_completed: true
 ```
-
 <details>
 
 ## Source

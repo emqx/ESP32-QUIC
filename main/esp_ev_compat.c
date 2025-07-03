@@ -8,7 +8,7 @@
 #include <sys/select.h>
 #include <string.h>
 
-static const char *TAG = "esp_ev_compat";
+static const char *TAG = "ESP_EV_COMPAT";
 
 // Define custom event base for our libev compatibility layer
 ESP_EVENT_DEFINE_BASE(LIBEV_EVENTS);
@@ -104,7 +104,7 @@ static void timer_callback(void *arg) {
             .watcher = w,
             .revents = EV_TIMER
         };
-        
+    
         // Post timer event to ESP event loop
         esp_event_post_to(w->loop->esp_event_loop, LIBEV_EVENTS, LIBEV_TIMER_EVENT,
                          &data, sizeof(data), 0);
@@ -313,6 +313,7 @@ void ev_timer_again(ev_loop *loop, ev_timer *watcher) {
     
     // Start timer
     ev_tstamp timeout = watcher->active ? watcher->repeat : watcher->after;
+    ESP_LOGD(TAG, "Starting timer with timeout: %f seconds", timeout);
     esp_timer_start_once(watcher->esp_timer_handle, (uint64_t)(timeout * 1000000.0));
     watcher->active = 1;
 }

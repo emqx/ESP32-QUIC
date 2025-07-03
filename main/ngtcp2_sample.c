@@ -46,8 +46,12 @@
 
 //#include <ev.h>
 #include "esp_ev_compat.h"
+#include "ngtcp2_sample.h"
+#include <esp_task_wdt.h>
+#include "mqtt_quic_transport.h"  // This includes esp_timer.h
 
-
+#include "esp_log.h"
+static const char *TAG = "QUIC";
 // @NOTE: hack to avoid using stderr
 #undef stderr
 #define stderr stdout
@@ -68,20 +72,45 @@
  * and undefine MESSAGE macro.
  */
 
-#define REMOTE_HOST "1.1.1.1"
+#define REMOTE_HOST "127.0.0.1"
 #define REMOTE_PORT "14567"
 #define ALPN "\x4mqtt"
-#define MESSAGE "\020=\000\004MQTT\005\002\001,\005\021\000\000\000\000\000+convincing-jellyfish_ESP32_pub_1483024633_1"
+struct client g_client;  // Make the client struct global
+
+// Global configuration for dynamic hostname/port
+static quic_client_config_t g_config = {
+    .hostname = REMOTE_HOST,
+    .port = REMOTE_PORT,
+    .alpn = ALPN
+};
+
+// Global state for QUIC connection
+static volatile bool g_quic_connected = false;
+static volatile bool g_quic_handshake_completed = false;
+static volatile uint64_t g_quic_n_local_streams = 0;
+
+// Mutex for thread-safe QUIC operations
+SemaphoreHandle_t quic_mutex = NULL;
+static bool quic_processing = false;  // Flag to prevent reentrancy
+
+#define APP_BUFFER_SIZE 4096
+static uint8_t app_recv_buffer[APP_BUFFER_SIZE];
+static size_t app_recv_buffer_len = 0;
+static size_t app_recv_buffer_read_pos = 0;
 
 static uint64_t timestamp(void) {
-  struct timespec tp;
-
-  if (clock_gettime(CLOCK_MONOTONIC, &tp) != 0) {
-    fprintf(stderr, "clock_gettime: %s\n", strerror(errno));
-    exit(EXIT_FAILURE);
+  // Use ESP32's monotonic timer for consistent timestamps
+  static uint64_t last_timestamp = 0;
+  uint64_t current_timestamp = esp_timer_get_time() * 1000; // Convert microseconds to nanoseconds
+  
+  // Ensure timestamps are monotonic (never go backwards)
+  if (current_timestamp < last_timestamp) {
+    ESP_LOGI(TAG, "Warning: timestamp went backwards! Using last timestamp");
+    current_timestamp = last_timestamp + 1000; // Add 1 microsecond
   }
-
-  return (uint64_t)tp.tv_sec * NGTCP2_SECONDS + (uint64_t)tp.tv_nsec;
+  
+  last_timestamp = current_timestamp;
+  return current_timestamp;
 }
 
 static int create_sock(struct sockaddr *addr, socklen_t *paddrlen,
@@ -96,7 +125,8 @@ static int create_sock(struct sockaddr *addr, socklen_t *paddrlen,
 
   rv = getaddrinfo(host, port, &hints, &res);
   if (rv != 0) {
-    //fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+    // Replace gai_strerror with displaying the error code directly
+    ESP_LOGE(TAG, "getaddrinfo failed with error code: %d", rv);
     return -1;
   }
 
@@ -128,14 +158,14 @@ static int connect_sock(struct sockaddr *local_addr, socklen_t *plocal_addrlen,
   socklen_t len;
 
   if (connect(fd, remote_addr, (socklen_t)remote_addrlen) != 0) {
-    fprintf(stderr, "connect: %s\n", strerror(errno));
+    ESP_LOGE(TAG, "connect: %s", strerror(errno));
     return -1;
   }
 
   len = *plocal_addrlen;
 
   if (getsockname(fd, local_addr, &len) == -1) {
-    fprintf(stderr, "getsockname: %s\n", strerror(errno));
+    ESP_LOGE(TAG, "getsockname: %s", strerror(errno));
     return -1;
   }
 
@@ -179,30 +209,41 @@ static int numeric_host(const char *hostname) {
 static int client_ssl_init(struct client *c) {
   c->ssl_ctx = SSL_CTX_new(TLS_client_method());
   if (!c->ssl_ctx) {
-    fprintf(stderr, "SSL_CTX_new: %s\n",
-            ERR_error_string(ERR_get_error(), NULL));
+    ESP_LOGE(TAG, "SSL_CTX_new: %s", ERR_error_string(ERR_get_error(), NULL));
     return -1;
   }
 
   if (ngtcp2_crypto_wolfssl_configure_client_context(c->ssl_ctx) != 0) {
-    fprintf(stderr, "ngtcp2_crypto_wolfssl_configure_client_context failed\n");
+    ESP_LOGE(TAG, "ngtcp2_crypto_wolfssl_configure_client_context failed");
     return -1;
   }
 
-  wolfSSL_CTX_UseSNI(c->ssl_ctx, WOLFSSL_SNI_HOST_NAME, REMOTE_HOST, sizeof(REMOTE_HOST));
+  wolfSSL_CTX_UseSNI(c->ssl_ctx, WOLFSSL_SNI_HOST_NAME, g_config.hostname, strlen(g_config.hostname) + 1);
   wolfSSL_CTX_set_verify(c->ssl_ctx, WOLFSSL_VERIFY_NONE, NULL);
 
   c->ssl = SSL_new(c->ssl_ctx);
   if (!c->ssl) {
-    fprintf(stderr, "SSL_new: %s\n", ERR_error_string(ERR_get_error(), NULL));
+    ESP_LOGE(TAG, "SSL_new: %s", ERR_error_string(ERR_get_error(), NULL));
     return -1;
   }
 
   SSL_set_app_data(c->ssl, &c->conn_ref);
   SSL_set_connect_state(c->ssl);
-  SSL_set_alpn_protos(c->ssl, (const unsigned char *)ALPN, sizeof(ALPN) - 1);
-  if (!numeric_host(REMOTE_HOST)) {
-    SSL_set_tlsext_host_name(c->ssl, REMOTE_HOST);
+  
+  // Set ALPN - need to convert string to proper binary format
+  uint8_t alpn_list[16];  // Buffer for ALPN list
+  size_t alpn_len = strlen(g_config.alpn);
+  if (alpn_len > 0 && alpn_len < 15) {
+    alpn_list[0] = (uint8_t)alpn_len;  // Length prefix
+    memcpy(&alpn_list[1], g_config.alpn, alpn_len);
+    SSL_set_alpn_protos(c->ssl, alpn_list, alpn_len + 1);
+    ESP_LOGI(TAG, "Set ALPN: %s (length: %zu)", g_config.alpn, alpn_len);
+  } else {
+    ESP_LOGE(TAG, "Invalid ALPN length: %zu", alpn_len);
+  }
+  
+  if (!numeric_host(g_config.hostname)) {
+    SSL_set_tlsext_host_name(c->ssl, g_config.hostname);
   }
 
   return 0;
@@ -239,37 +280,29 @@ static int get_new_connection_id_cb(ngtcp2_conn *conn, ngtcp2_cid *cid,
   return 0;
 }
 
+static int handshake_completed_cb(ngtcp2_conn *conn, void *user_data) {
+    (void)conn;
+    (void)user_data;
+    ESP_LOGI(TAG, "QUIC handshake completed callback triggered!");
+    g_quic_handshake_completed = true;
+    return 0;
+}
+
+// Forward declaration for recv_stream_data callback
+static int recv_stream_data(ngtcp2_conn *conn, uint32_t flags,
+                           int64_t stream_id, uint64_t offset,
+                           const uint8_t *data, size_t datalen,
+                           void *user_data, void *stream_user_data);
+
 static int extend_max_local_streams_bidi(ngtcp2_conn *conn,
                                          uint64_t max_streams,
                                          void *user_data) {
-#ifdef MESSAGE
-  struct client *c = user_data;
-  int rv;
-  int64_t stream_id;
-  (void)max_streams;
-  printf("in CB: %s : %lld \n", __func__, c->stream.stream_id);
-
-  if (c->stream.stream_id != -1) {
-    return 0;
-  }
-
-  rv = ngtcp2_conn_open_bidi_stream(conn, &stream_id, NULL);
-  if (rv != 0) {
-    return 0;
-  }
-
-  c->stream.stream_id = stream_id;
-  c->stream.data = (const uint8_t *)MESSAGE;
-  c->stream.datalen = sizeof(MESSAGE) - 1;
-  printf("send msg: %s\n", MESSAGE);
-  return 0;
-#else  /* !defined(MESSAGE) */
   (void)conn;
-  (void)max_streams;
-  (void)user_data;
-
+  (void)user_data; 
+  ESP_LOGI(TAG, "Extending max local streams bidi to %" PRIu64 "\n", max_streams);
+  g_quic_connected = true;
+  g_quic_n_local_streams = max_streams;
   return 0;
-#endif /* !defined(MESSAGE) */
 }
 
 static void log_printf(void *user_data, const char *fmt, ...) {
@@ -288,6 +321,7 @@ static int client_quic_init(struct client *c,
                             socklen_t remote_addrlen,
                             const struct sockaddr *local_addr,
                             socklen_t local_addrlen) {
+  ESP_LOGI(TAG, "In client_quic_init");
   ngtcp2_path path = {
     .local =
       {
@@ -307,6 +341,8 @@ static int client_quic_init(struct client *c,
     .decrypt = ngtcp2_crypto_decrypt_cb,
     .hp_mask = ngtcp2_crypto_hp_mask_cb,
     .recv_retry = ngtcp2_crypto_recv_retry_cb,
+    .recv_stream_data = recv_stream_data,  // Add this callback!
+    .handshake_completed = handshake_completed_cb,  // Add handshake completion callback
     .extend_max_local_streams_bidi = extend_max_local_streams_bidi,
     .rand = rand_cb,
     .get_new_connection_id = get_new_connection_id_cb,
@@ -323,7 +359,7 @@ static int client_quic_init(struct client *c,
 
   dcid.datalen = NGTCP2_MIN_INITIAL_DCIDLEN;
   if (RAND_bytes(dcid.data, (int)dcid.datalen) != 1) {
-    fprintf(stderr, "RAND_bytes failed\n");
+    ESP_LOGE(TAG, "RAND_bytes failed");
     return -1;
   }
 
@@ -339,6 +375,7 @@ static int client_quic_init(struct client *c,
   ngtcp2_settings_default(&settings);
 
   settings.initial_ts = timestamp();
+  ESP_LOGI(TAG, "===>  INITIAL TS: %lu", settings.initial_ts);
   settings.log_printf = log_printf;
 
   ngtcp2_transport_params_default(&params);
@@ -351,7 +388,7 @@ static int client_quic_init(struct client *c,
     ngtcp2_conn_client_new(&c->conn, &dcid, &scid, &path, NGTCP2_PROTO_VER_V1,
                            &callbacks, &settings, &params, NULL, c);
   if (rv != 0) {
-    fprintf(stderr, "ngtcp2_conn_client_new: %s\n", ngtcp2_strerror(rv));
+    ESP_LOGE(TAG, "ngtcp2_conn_client_new: %s", ngtcp2_strerror(rv));
     return -1;
   }
 
@@ -385,7 +422,7 @@ static int client_read(struct client *c) {
 
     if (nread == -1) {
       if (errno != EAGAIN && errno != EWOULDBLOCK) {
-        fprintf(stderr, "recvmsg: %s\n", strerror(errno));
+        ESP_LOGE(TAG, "recvmsg: %s", strerror(errno));
       }
 
       break;
@@ -399,7 +436,7 @@ static int client_read(struct client *c) {
     rv = ngtcp2_conn_read_pkt(c->conn, &path, &pi, buf, (size_t)nread,
                               timestamp());
     if (rv != 0) {
-      fprintf(stderr, "ngtcp2_conn_read_pkt: %s\n", ngtcp2_strerror(rv));
+      ESP_LOGE(TAG, "ngtcp2_conn_read_pkt: %s", ngtcp2_strerror(rv));
       if (!c->last_error.error_code) {
         if (rv == NGTCP2_ERR_CRYPTO) {
           ngtcp2_ccerr_set_tls_alert(
@@ -432,8 +469,7 @@ static int client_send_packet(struct client *c, const uint8_t *data,
   } while (nwrite == -1 && errno == EINTR);
 
   if (nwrite == -1) {
-    fprintf(stderr, "sendmsg: %s\n", strerror(errno));
-
+    ESP_LOGE(TAG, "sendmsg: %s", strerror(errno));
     return -1;
   }
 
@@ -495,8 +531,7 @@ static int client_write_streams(struct client *c) {
         c->stream.nwrite += (size_t)wdatalen;
         continue;
       default:
-        fprintf(stderr, "ngtcp2_conn_writev_stream: %s\n",
-                ngtcp2_strerror((int)nwrite));
+        ESP_LOGE(TAG, "ngtcp2_conn_writev_stream: %s", ngtcp2_strerror((int)nwrite));
         ngtcp2_ccerr_set_liberr(&c->last_error, (int)nwrite, NULL, 0);
         return -1;
       }
@@ -518,6 +553,7 @@ static int client_write_streams(struct client *c) {
   return 0;
 }
 
+static int client_handle_expiry(struct client *c);
 static int client_write(struct client *c) {
   ngtcp2_tstamp expiry, now;
   ev_tstamp t;
@@ -529,7 +565,15 @@ static int client_write(struct client *c) {
   expiry = ngtcp2_conn_get_expiry(c->conn);
   now = timestamp();
 
+  // @FIXME: timer has some issues here
+  ESP_LOGD(TAG, "check timeout: expiry %lu, now: %lu", expiry, now);
   t = expiry < now ? 1e-9 : (ev_tstamp)(expiry - now) / NGTCP2_SECONDS;
+  
+  // Ensure minimum timer interval to prevent excessive CPU usage
+  if (t < 0.001) {  // Minimum 1ms
+    t = 0.001;
+    client_handle_expiry(c);
+  }
 
   c->timer.repeat = t;
   ev_timer_again(EV_DEFAULT, &c->timer);
@@ -540,7 +584,7 @@ static int client_write(struct client *c) {
 static int client_handle_expiry(struct client *c) {
   int rv = ngtcp2_conn_handle_expiry(c->conn, timestamp());
   if (rv != 0) {
-    fprintf(stderr, "ngtcp2_conn_handle_expiry: %s\n", ngtcp2_strerror(rv));
+    ESP_LOGE(TAG, "ngtcp2_conn_handle_expiry: %s", ngtcp2_strerror(rv));
     return -1;
   }
 
@@ -563,8 +607,7 @@ static void client_close(struct client *c) {
   nwrite = ngtcp2_conn_write_connection_close(
     c->conn, &ps.path, &pi, buf, sizeof(buf), &c->last_error, timestamp());
   if (nwrite < 0) {
-    fprintf(stderr, "ngtcp2_conn_write_connection_close: %s\n",
-            ngtcp2_strerror((int)nwrite));
+    ESP_LOGE(TAG, "ngtcp2_conn_write_connection_close: %s", ngtcp2_strerror((int)nwrite));
     goto fin;
   }
 
@@ -579,10 +622,16 @@ static void read_cb(struct ev_loop *loop, ev_io *w, int revents) {
   (void)loop;
   (void)revents;
 
+  // Add watchdog reset to prevent timeout
+  esp_task_wdt_reset();
+
   if (client_read(c) != 0) {
     client_close(c);
     return;
   }
+
+  // Brief delay to avoid collision and allow other tasks to run
+  vTaskDelay(pdMS_TO_TICKS(2));
 
   if (client_write(c) != 0) {
     client_close(c);
@@ -618,7 +667,7 @@ static int client_init(struct client *c) {
   ngtcp2_ccerr_default(&c->last_error);
 
   c->fd = create_sock((struct sockaddr *)&remote_addr, &remote_addrlen,
-                      REMOTE_HOST, REMOTE_PORT);
+                      g_config.hostname, g_config.port);
   if (c->fd == -1) {
     return -1;
   }
@@ -661,31 +710,354 @@ static void client_free(struct client *c) {
   SSL_CTX_free(c->ssl_ctx);
 }
 
-int sample_main(void) {
-  struct client c;
+int client_write_application_data(struct client *c, const uint8_t *data, size_t datalen) {
+    if (!c || !c->conn || !data || datalen == 0) {
+        ESP_LOGE(TAG, "Invalid parameters for client_write_application_data");
+        return -1;
+    }
 
-  printf("init random number generator\n");
+    // This function should write application data to a QUIC stream
+    ngtcp2_vec vec = {
+        .base = (uint8_t *)data,
+        .len = datalen
+    };
+    
+    int64_t stream_id = -1;  // Use the appropriate stream ID or create a new one
+    
+    // Check if we have an existing stream or need to create one
+    if (c->stream.stream_id < 0) {
+        int rv = ngtcp2_conn_open_bidi_stream(c->conn, &stream_id, NULL);
+        if (rv != 0) {
+            ESP_LOGE(TAG, "ngtcp2_conn_open_bidi_stream: %s", ngtcp2_strerror(rv));
+            return -1;
+        }
+        c->stream.stream_id = stream_id;
+        ESP_LOGI(TAG, "Opened new QUIC stream with ID: %lld", (long long)stream_id);
+    } else {
+        stream_id = c->stream.stream_id;
+    }
+    
+    // Use the higher-level write function that handles buffering
+    uint32_t flags = NGTCP2_WRITE_STREAM_FLAG_NONE;
+    ngtcp2_ssize wdatalen = 0;
+    
+    uint8_t buf[1452];  // MTU-sized buffer
+    ngtcp2_path_storage ps;
+    ngtcp2_pkt_info pi;
+    
+    ngtcp2_path_storage_zero(&ps);
+    
+    ngtcp2_ssize nwrite = ngtcp2_conn_writev_stream(c->conn, &ps.path, &pi, buf, sizeof(buf),
+                                                   &wdatalen, flags, stream_id, &vec, 1, timestamp());
+    if (nwrite < 0) {
+        if (nwrite == NGTCP2_ERR_WRITE_MORE) {
+            // Partial write, this is normal
+            ESP_LOGI(TAG, "Partial write: %zu bytes queued", (size_t)wdatalen);
+        } else {
+            ESP_LOGE(TAG, "ngtcp2_conn_writev_stream: %s", ngtcp2_strerror((int)nwrite));
+            return -1;
+        }
+    }
 
-  srandom((unsigned int)timestamp());
+    // Send the packet if we have data to send
+    if (nwrite > 0) {
+        if (client_send_packet(c, buf, (size_t)nwrite) != 0) {
+            ESP_LOGE(TAG, "client_send_packet failed");
+            return -1;
+        }
+        ESP_LOGI(TAG, "Sent QUIC packet with %zu bytes, stream data: %zu bytes", (size_t)nwrite, (size_t)wdatalen);
+    }
 
-  ev_default_loop_init();
-  
-  printf("init client ...\n");
+    if (nwrite == 0)
+    {
+        ESP_LOGI(TAG, "Cannot send QUIC packet with %zu bytes, stream data: %zu bytes", (size_t)nwrite, (size_t)wdatalen);
+    }
+    
+    return 0;
+}
 
-  if (client_init(&c) != 0) {
-    exit(EXIT_FAILURE);
-  }
+int client_read_application_data(struct client *c, uint8_t *buffer, size_t buffer_size, size_t *bytes_read) {
+    *bytes_read = 0;
+    
+    // First check if we have data in our buffer
+    if (app_recv_buffer_len > app_recv_buffer_read_pos) {
+        // We have unread data in the buffer
+        size_t available = app_recv_buffer_len - app_recv_buffer_read_pos;
+        size_t to_copy = (available < buffer_size) ? available : buffer_size;
+        
+        memcpy(buffer, app_recv_buffer + app_recv_buffer_read_pos, to_copy);
+        app_recv_buffer_read_pos += to_copy;
+        
+        // Reset buffer if all data has been read
+        if (app_recv_buffer_read_pos >= app_recv_buffer_len) {
+            app_recv_buffer_len = 0;
+            app_recv_buffer_read_pos = 0;
+        }
+        
+        *bytes_read = to_copy;
+        return 0;
+    }
+    
+    // We need to read from the network
+    if (client_read(c) != 0) {
+        ESP_LOGE(TAG, "client_read failed");
+        return -1;
+    }
+    
+    // Check if we received any application data during client_read
+    if (app_recv_buffer_len > 0) {
+        // We have data in the buffer now, call ourselves recursively
+        return client_read_application_data(c, buffer, buffer_size, bytes_read);
+    }
+    
+    // No data available at this time
+    return -2;  // Special code for no data
+}
 
-  printf("client write ...\n");
+int recv_stream_data(ngtcp2_conn *conn, uint32_t flags,
+                    int64_t stream_id, uint64_t offset,
+                    const uint8_t *data, size_t datalen,
+                    void *user_data, void *stream_user_data) {
+    struct client *c = user_data;
+    
+    // Store the received data in our buffer
+    if (datalen > 0 && app_recv_buffer_len + datalen <= APP_BUFFER_SIZE) {
+        memcpy(app_recv_buffer + app_recv_buffer_len, data, datalen);
+        app_recv_buffer_len += datalen;
+    }
+    
+    // Acknowledge the data was received by using ngtcp2_conn_extend_max_stream_offset
+    int rv = ngtcp2_conn_extend_max_stream_offset(conn, stream_id, datalen);
+    if (rv != 0) {
+        ESP_LOGE(TAG, "ngtcp2_conn_extend_max_stream_offset: %s", ngtcp2_strerror(rv));
+        return NGTCP2_ERR_CALLBACK_FAILURE;
+    }
+    
+    return 0;
+}
 
-  if (client_write(&c) != 0) {
-    exit(EXIT_FAILURE);
-  }
+// Non-blocking QUIC client functions
+int quic_client_init_with_config(const quic_client_config_t *config) {
+    // Initialize mutex for thread safety
+    if (quic_mutex == NULL) {
+        quic_mutex = xSemaphoreCreateMutex();
+        if (quic_mutex == NULL) {
+            ESP_LOGE(TAG, "Failed to create QUIC mutex");
+            return -1;
+        }
+        ESP_LOGI(TAG, "QUIC mutex created successfully");
+    }
+    
+    // Clear the global client structure first
+    memset(&g_client, 0, sizeof(g_client));
+    quic_processing = false;
+    
+    if (config) {
+        g_config.hostname = config->hostname;
+        g_config.port = config->port;
+        g_config.alpn = config->alpn;
+        ESP_LOGI(TAG, "QUIC client config: %s:%s with ALPN %s", 
+               g_config.hostname, g_config.port, g_config.alpn);
+    }
 
-  printf("ev run ...\n");
-  ev_run(EV_DEFAULT, 0);
+    ESP_LOGI(TAG, "init random number generator");
+    srandom((unsigned int)timestamp());
 
-  client_free(&c);
+    // Initialize the event loop (non-blocking)
+    ev_default_loop_init();
+    
+    ESP_LOGI(TAG, "init client ...");
 
-  return 0;
+    if (client_init(&g_client) != 0) {
+        ESP_LOGE(TAG, "client_init failed");
+        return -1;
+    }
+
+    g_quic_connected = false;
+    g_quic_handshake_completed = false;
+    
+    ESP_LOGI(TAG, "QUIC client initialization completed");
+    return 0;
+}
+
+int quic_client_process(void) {
+    // Use delay to prevent watchdog trigger
+    vTaskDelay(pdMS_TO_TICKS(5));
+    
+    // Check if mutex is available
+    if (quic_mutex == NULL) {
+        ESP_LOGE(TAG, "QUIC mutex not initialized");
+        return -1;
+    }
+    
+    // Try to acquire mutex with timeout (50ms)
+    if (xSemaphoreTake(quic_mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to acquire QUIC mutex, skipping this cycle");
+        return 0; // Don't consider this an error, just skip
+    }
+    
+    int result = 0;
+    
+    // Check if already processing to prevent reentrancy
+    if (quic_processing) {
+        ESP_LOGI(TAG, "QUIC processing already in progress, skipping");
+        xSemaphoreGive(quic_mutex);
+        return 0;
+    }
+    
+    // Set processing flag
+    quic_processing = true;
+    
+    // Check if we have a valid connection
+    if (!g_client.conn) {
+        result = -1;
+        goto cleanup;
+    }
+    
+    // Check connection state before processing
+    if (ngtcp2_conn_in_closing_period(g_client.conn) || 
+        ngtcp2_conn_in_draining_period(g_client.conn)) {
+        ESP_LOGI(TAG, "Connection is closing/draining, skipping processing");
+        result = -1;
+        goto cleanup;
+    }
+    
+    // Read from the socket and handle packets
+    result = client_read(&g_client);
+    if (result != 0) {
+        ESP_LOGE(TAG, "client_read failed: %d", result);
+        goto cleanup;
+    }
+    
+    // Brief delay between read and write
+    vTaskDelay(pdMS_TO_TICKS(1));
+    
+    // Write any pending data
+    result = client_write(&g_client);
+    if (result != 0) {
+        ESP_LOGE(TAG, "client_write failed: %d", result);
+        goto cleanup;
+    }
+    
+    // Update connection state
+    if (g_client.conn && !g_quic_handshake_completed) {
+        g_quic_handshake_completed = true;
+        g_quic_connected = true;
+        ESP_LOGI(TAG, "QUIC connection established!");
+    }
+
+cleanup:
+    quic_processing = false;
+    xSemaphoreGive(quic_mutex);
+    return result;
+}
+
+bool quic_client_is_connected(void) {
+    return g_quic_connected && g_quic_handshake_completed && g_client.conn != NULL;
+}
+
+int quic_client_local_stream_avail(void) {
+    return g_quic_n_local_streams > 0;
+}
+
+void quic_client_cleanup(void) {
+    ESP_LOGI(TAG, "Cleaning up QUIC client...");
+    
+    // Acquire mutex before cleanup
+    if (quic_mutex != NULL) {
+        xSemaphoreTake(quic_mutex, portMAX_DELAY);
+    }
+    
+    if (g_client.conn) {
+        ESP_LOGI(TAG, "Freeing QUIC connection...");
+        client_free(&g_client);
+        memset(&g_client, 0, sizeof(g_client));  // Clear the structure
+    }
+    
+    g_quic_connected = false;
+    g_quic_handshake_completed = false;
+    quic_processing = false;
+    
+    // Release and delete mutex
+    if (quic_mutex != NULL) {
+        xSemaphoreGive(quic_mutex);
+        vSemaphoreDelete(quic_mutex);
+        quic_mutex = NULL;
+        ESP_LOGI(TAG, "QUIC mutex deleted");
+    }
+    
+    ESP_LOGI(TAG, "QUIC client cleanup completed. Free heap: %lu bytes", esp_get_free_heap_size());
+}
+
+// Thread-safe wrapper for QUIC write operations
+int quic_client_write_safe(const uint8_t *data, size_t datalen) {
+    if (quic_mutex == NULL) {
+        ESP_LOGE(TAG, "QUIC mutex not initialized");
+        return -1;
+    }
+    
+    if (data == NULL || datalen == 0) {
+        ESP_LOGE(TAG, "Invalid write parameters");
+        return -1;
+    }
+    
+    // Acquire mutex with timeout
+    if (xSemaphoreTake(quic_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to acquire QUIC mutex for write");
+        return -1;
+    }
+    
+    int result = -1;
+    
+    // Check if connection is valid
+    if (!g_client.conn || !g_quic_connected) {
+        ESP_LOGE(TAG, "QUIC connection not ready for write");
+        goto cleanup;
+    }
+    
+    // Check if processing is ongoing
+    if (quic_processing) {
+        ESP_LOGE(TAG, "QUIC processing in progress, cannot write");
+        goto cleanup;
+    }
+    
+    // Perform the write operation
+    result = client_write_application_data(&g_client, data, datalen);
+    if (result == 0) {
+        ESP_LOGI(TAG, "Successfully wrote %zu bytes to QUIC stream", datalen);
+    } else {
+        ESP_LOGE(TAG, "Failed to write data to QUIC stream: %d", result);
+    }
+
+cleanup:
+    xSemaphoreGive(quic_mutex);
+    return result;
+}
+
+// Thread-safe wrapper for QUIC read operations
+int quic_client_read_safe(uint8_t *buffer, size_t buffer_size, size_t *bytes_read) {
+    if (quic_mutex == NULL) {
+        ESP_LOGE(TAG, "QUIC mutex not initialized");
+        return -1;
+    }
+    
+    if (buffer == NULL || buffer_size == 0 || bytes_read == NULL) {
+        ESP_LOGE(TAG, "Invalid read parameters");
+        return -1;
+    }
+    
+    *bytes_read = 0;
+    
+    // Acquire mutex with timeout
+    if (xSemaphoreTake(quic_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to acquire QUIC mutex for read");
+        return -1;
+    }
+    
+    int result = client_read_application_data(&g_client, buffer, buffer_size, bytes_read);
+    
+    // Release mutex
+    xSemaphoreGive(quic_mutex);
+    
+    return result;
 }

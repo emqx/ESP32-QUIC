@@ -239,15 +239,14 @@ The default ESP32-C3 partition table provides only ~1MB for the application, whi
 
 The custom 1700KB factory partition provides adequate space for all components with room for future enhancements.
 
+## Logs
 
-
-# Logs
-
-## ESP32C3
+### ESP32C3
 
 <details>
 
-<summary>  monitor log </summary>
+<summary> monitor log </summary>
+
 ``` 
 Rebooting...
 ESP-ROM:esp32c3-api1-20210207
@@ -770,12 +769,14 @@ I00005291 0x pkt rx pkn=16 dcid=0x type=1RTT k=0
 I00005291 0x ldc loss_detection_timer=12182283140 timeout=2812
 I00005291 0x con probe pkt size=82
 ```
+
 </details>
 
-## EMQX
+### EMQX
 
 <details>
-<summary>> EMQX debug log </summary>
+
+<summary> EMQX debug log </summary>
 
 ```
 025-07-08T07:37:03.345549+00:00 [debug] version: 16777216, local_addr: 10.0.19.164:14567, remote_addr: y.y.y.y:62082, server_name: <<"x.x.x.x">>, conn: #Ref<0.2617253814.2250375168.147187>, crypto_buffer: <<1,0,1,61,3,3,224,80,159,51,143,207,149,208,200,42,111,27,53,113,79,61,207,25,69,239,184,151,28,22,211,246,179,201,159,129,4,68,0,0,32,19,2,19,1,192,44,192,43,192,48,192,47,192,39,192,35,192,40,192,36,192,10,192,9,192,8,192,20,192,19,192,18,1,0,0,244,255,165,0,27,15,0,5,4,128,2,0,0,4,4,128,16,0,0,9,1,3,17,...>>, alpns: <<"mqtt">>, client_alpns: <<4,109,113,116,116>>

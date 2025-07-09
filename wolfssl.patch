@@ -1,0 +1,5 @@
+--- a/managed_components/wolfssl__wolfssl/include/user_settings.h
++++ b/managed_components/wolfssl__wolfssl/include/user_settings.h
+@@ -1 +1 @@
+-#define NO_SESSION_CACHE
++//#define NO_SESSION_CACHE

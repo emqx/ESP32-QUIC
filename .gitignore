@@ -2,3 +2,18 @@
 build
 managed_components/
 sdkconfig.old
+
+# CI/CD artifacts
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

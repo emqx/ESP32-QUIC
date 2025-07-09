@@ -1,5 +1,11 @@
 --- a/managed_components/wolfssl__wolfssl/include/user_settings.h
 +++ b/managed_components/wolfssl__wolfssl/include/user_settings.h
-@@ -1 +1 @@
+@@ -346,7 +346,7 @@
+  * Memory requirement is about 5KB, otherwise 20K is needed when not specified.
+  * If extra small footprint is needed, try MICRO_SESSION_CACHE (< 1K)
+  * When really desperate or no TLS used, try NO_SESSION_CACHE.  */
 -#define NO_SESSION_CACHE
 +//#define NO_SESSION_CACHE
+ 
+ /* Small Stack uses more heap. */
+ #define WOLFSSL_SMALL_STACK

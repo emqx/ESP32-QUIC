@@ -44,6 +44,10 @@ jobs:
               echo "wolfSSL patch applied successfully"
             fi
             
+            # Remove dependencies.lock for ESP-IDF 5.x versions
+            echo "Removing dependencies.lock for ESP-IDF v5.2"
+            rm -f dependencies.lock
+            
             # Build the project
             echo "Building ESP32-QUIC project..."
             idf.py build

@@ -55,6 +55,12 @@ jobs:
               echo "wolfSSL patch applied successfully"
             fi
             
+            # Remove dependencies.lock for ESP-IDF 5.x versions
+            if [[ "${{ matrix.idf_version }}" == v5.* ]]; then
+              echo "Removing dependencies.lock for ESP-IDF ${{ matrix.idf_version }}"
+              rm -f dependencies.lock
+            fi
+            
             # Build the project
             echo "Building ESP32-QUIC project with ESP-IDF ${{ matrix.idf_version }}..."
             idf.py build

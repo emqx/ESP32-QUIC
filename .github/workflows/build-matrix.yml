@@ -14,14 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        idf_version: [v5.1, v5.2, v6.0]
-        include:
-          - idf_version: v5.1
-            experimental: false
-          - idf_version: v5.2
-            experimental: false
-          - idf_version: v6.0
-            experimental: true
+        idf_version: [v5.1, v5.2]
     
     steps:
       - name: Checkout repository
@@ -55,11 +48,9 @@ jobs:
               echo "wolfSSL patch applied successfully"
             fi
             
-            # Remove dependencies.lock for ESP-IDF 5.x versions
-            if [[ "${{ matrix.idf_version }}" == v5.* ]]; then
-              echo "Removing dependencies.lock for ESP-IDF ${{ matrix.idf_version }}"
-              rm -f dependencies.lock
-            fi
+            # Remove dependencies.lock unconditionally  
+            echo "Removing dependencies.lock"
+            rm -f dependencies.lock
             
             # Build the project
             echo "Building ESP32-QUIC project with ESP-IDF ${{ matrix.idf_version }}..."

@@ -38,7 +38,7 @@ RISC-V [ESP32C3](https://www.espressif.com/en/products/socs/esp32-c3).
 This project includes a comprehensive CI/CD pipeline that:
 
 - **Automated Building**: Builds the project with ESP-IDF for ESP32-C3 target
-- **Matrix Testing**: Tests across multiple ESP-IDF versions (v5.1, v5.2)  
+- **Matrix Testing**: Tests across multiple ESP-IDF versions (v5.1, v5.2, v6.0)  
 - **Automatic Patching**: Applies wolfSSL and ngtcp2 patches automatically
 - **Artifact Generation**: Produces firmware binaries for each successful build
 - **Quality Checks**: Runs pytest tests and basic code quality validation

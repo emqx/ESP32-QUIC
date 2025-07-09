@@ -14,12 +14,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        idf_version: [v5.1, v5.2]
+        idf_version: [v5.1, v5.2, v6.0]
         include:
           - idf_version: v5.1
             experimental: false
           - idf_version: v5.2
             experimental: false
+          - idf_version: v6.0
+            experimental: true
     
     steps:
       - name: Checkout repository

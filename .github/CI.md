@@ -30,6 +30,7 @@ The CI pipeline is designed to build and test the ESP32-QUIC demo project across
 **Matrix Testing:**
 - ESP-IDF v5.1
 - ESP-IDF v5.2
+- ESP-IDF v6.0 (experimental)
 
 **Benefits:**
 - Ensures forward/backward compatibility

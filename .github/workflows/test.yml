@@ -41,6 +41,10 @@ jobs:
               cd ../../..
             fi
             
+            # Remove dependencies.lock unconditionally before reconfigure
+            echo "Removing dependencies.lock"
+            rm -f dependencies.lock
+            
             # Install dependencies first
             echo "Installing component dependencies..."
             idf.py reconfigure
@@ -52,10 +56,6 @@ jobs:
               sed -i 's/#define NO_SESSION_CACHE/\/\/#define NO_SESSION_CACHE/' "$WOLFSSL_USER_SETTINGS"
               echo "wolfSSL patch applied successfully"
             fi
-            
-            # Remove dependencies.lock unconditionally
-            echo "Removing dependencies.lock"
-            rm -f dependencies.lock
             
             # Build the project
             echo "Building ESP32-QUIC project for testing..."

@@ -838,5 +838,4 @@ I00005291 0x con probe pkt size=82
 
 ### KNOWN ISSUES
 
-- timestamp overflow
 

@@ -99,18 +99,7 @@ static size_t app_recv_buffer_len = 0;
 static size_t app_recv_buffer_read_pos = 0;
 
 static uint64_t timestamp(void) {
-  // Use ESP32's monotonic timer for consistent timestamps
-  static uint64_t last_timestamp = 0;
-  uint64_t current_timestamp = esp_timer_get_time() * 1000; // Convert microseconds to nanoseconds
-  
-  // Ensure timestamps are monotonic (never go backwards)
-  if (current_timestamp < last_timestamp) {
-    ESP_LOGI(TAG, "Warning: timestamp went backwards! Using last timestamp");
-    current_timestamp = last_timestamp + 1000; // Add 1 microsecond
-  }
-  
-  last_timestamp = current_timestamp;
-  return current_timestamp;
+  return esp_timer_get_time() * 1000;
 }
 
 static int create_sock(struct sockaddr *addr, socklen_t *paddrlen,
@@ -622,9 +611,6 @@ static void read_cb(struct ev_loop *loop, ev_io *w, int revents) {
   (void)loop;
   (void)revents;
 
-  // Add watchdog reset to prevent timeout
-  esp_task_wdt_reset();
-
   if (client_read(c) != 0) {
     client_close(c);
     return;
@@ -633,9 +619,11 @@ static void read_cb(struct ev_loop *loop, ev_io *w, int revents) {
   // Brief delay to avoid collision and allow other tasks to run
   vTaskDelay(pdMS_TO_TICKS(2));
 
+  /* To make it simple, just have one writer thread in timer_cb
   if (client_write(c) != 0) {
     client_close(c);
   }
+  */
 }
 
 static void timer_cb(struct ev_loop *loop, ev_timer *w, int revents) {
@@ -710,7 +698,7 @@ static void client_free(struct client *c) {
   SSL_CTX_free(c->ssl_ctx);
 }
 
-int client_write_application_data(struct client *c, const uint8_t *data, size_t datalen) {
+static ssize_t client_write_application_data(struct client *c, const uint8_t *data, size_t datalen) {
     if (!c || !c->conn || !data || datalen == 0) {
         ESP_LOGE(TAG, "Invalid parameters for client_write_application_data");
         return -1;

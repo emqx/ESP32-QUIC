@@ -1,0 +1,71 @@
+name: ESP32-QUIC CI
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ESP32-QUIC Project
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      
+      - name: Build with ESP-IDF
+        uses: espressif/esp-idf-ci-action@v1.1.0
+        with:
+          esp_idf_version: v5.2
+          target: esp32c3
+          command: |
+            # Apply ngtcp2 patch if needed
+            if [ -f "ngtcp2.patch" ] && [ -d "components/ngtcp2/ngtcp2" ]; then
+              echo "Applying ngtcp2 patch"
+              cd components/ngtcp2/ngtcp2
+              git apply ../../../ngtcp2.patch || echo "Patch already applied or not needed"
+              cd ../../..
+            fi
+            
+            # Install dependencies first
+            echo "Installing component dependencies..."
+            idf.py reconfigure
+            
+            # Apply wolfSSL patch after component installation if needed
+            WOLFSSL_USER_SETTINGS="managed_components/wolfssl__wolfssl/include/user_settings.h"
+            if [ -f "$WOLFSSL_USER_SETTINGS" ] && grep -q "#define NO_SESSION_CACHE" "$WOLFSSL_USER_SETTINGS"; then
+              echo "Applying wolfSSL patch after component installation"
+              sed -i 's/#define NO_SESSION_CACHE/\/\/#define NO_SESSION_CACHE/' "$WOLFSSL_USER_SETTINGS"
+              echo "wolfSSL patch applied successfully"
+            fi
+            
+            # Build the project
+            echo "Building ESP32-QUIC project..."
+            idf.py build
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: esp32-quic-firmware
+          path: |
+            build/*.bin
+            build/*.elf
+            build/*.map
+            build/partition_table/
+          retention-days: 7
+      
+      - name: Display build summary
+        if: success()
+        run: |
+          echo "Build completed successfully!"
+          echo "Artifacts:"
+          ls -la build/*.bin build/*.elf build/*.map 2>/dev/null || echo "Some artifacts may not exist"
+          if [ -d "build/partition_table" ]; then
+            ls -la build/partition_table/
+          fi

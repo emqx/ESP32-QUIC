@@ -1,0 +1,17 @@
+# CI-specific configuration
+# This file contains minimal configuration for CI builds
+CONFIG_IDF_TARGET="esp32c3"
+CONFIG_IDF_TARGET_ESP32C3=y
+
+# Disable features that might cause issues in CI
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_UART=y
+
+# Optimize for faster CI builds
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# Enable required components for QUIC
+CONFIG_LWIP_DHCP=y
+CONFIG_LWIP_DNS=y

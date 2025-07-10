@@ -364,7 +364,7 @@ static int client_quic_init(struct client *c,
   ngtcp2_settings_default(&settings);
 
   settings.initial_ts = timestamp();
-  ESP_LOGI(TAG, "===>  INITIAL TS: %lu", settings.initial_ts);
+  ESP_LOGI(TAG, "===>  INITIAL TS: %llu", (unsigned long long)settings.initial_ts);
   settings.log_printf = log_printf;
 
   ngtcp2_transport_params_default(&params);
@@ -555,7 +555,7 @@ static int client_write(struct client *c) {
   now = timestamp();
 
   // @FIXME: timer has some issues here
-  ESP_LOGD(TAG, "check timeout: expiry %lu, now: %lu", expiry, now);
+  ESP_LOGD(TAG, "check timeout: expiry %llu, now: %llu", (unsigned long long)expiry, (unsigned long long)now);
   t = expiry < now ? 1e-9 : (ev_tstamp)(expiry - now) / NGTCP2_SECONDS;
   
   // Ensure minimum timer interval to prevent excessive CPU usage
@@ -806,7 +806,7 @@ int recv_stream_data(ngtcp2_conn *conn, uint32_t flags,
                     int64_t stream_id, uint64_t offset,
                     const uint8_t *data, size_t datalen,
                     void *user_data, void *stream_user_data) {
-    struct client *c = user_data;
+    (void)user_data;
     
     // Store the received data in our buffer
     if (datalen > 0 && app_recv_buffer_len + datalen <= APP_BUFFER_SIZE) {

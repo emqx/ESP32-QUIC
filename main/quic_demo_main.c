@@ -148,7 +148,7 @@ void combined_quic_mqtt_task(void *pvParameters)
     }
 
     ESP_LOGI(TAG, "Starting combined QUIC+MQTT task");
-    ESP_LOGI(TAG, "Free heap at task start: %u bytes", esp_get_free_heap_size());
+    ESP_LOGI(TAG, "Free heap at task start: %lu bytes", esp_get_free_heap_size());
     
     // Convert port to string for QUIC config
     static char port_str[16];
@@ -162,7 +162,7 @@ void combined_quic_mqtt_task(void *pvParameters)
     };
 
     ESP_LOGI(TAG, "Initializing QUIC client with %s:%s", quic_config.hostname, quic_config.port);
-    ESP_LOGI(TAG, "Free heap before QUIC init: %u bytes", esp_get_free_heap_size());
+    ESP_LOGI(TAG, "Free heap before QUIC init: %lu bytes", esp_get_free_heap_size());
     
     // Initialize QUIC client (non-blocking)
     if (quic_client_init_with_config(&quic_config) != 0) {
@@ -172,7 +172,7 @@ void combined_quic_mqtt_task(void *pvParameters)
     }
 
     ESP_LOGI(TAG, "QUIC client initialized, waiting for connection...");
-    ESP_LOGI(TAG, "Free heap after QUIC init: %u bytes", esp_get_free_heap_size());
+    ESP_LOGI(TAG, "Free heap after QUIC init: %lu bytes", esp_get_free_heap_size());
     
     // Wait for QUIC connection to be established
     int connection_attempts = 0;
@@ -252,7 +252,7 @@ void combined_quic_mqtt_task(void *pvParameters)
     networkBuffer.pBuffer = buffer;
     networkBuffer.size = sizeof(buffer);
     
-    ESP_LOGD(TAG, "Free heap before MQTT init: %u bytes", esp_get_free_heap_size());
+    ESP_LOGD(TAG, "Free heap before MQTT init: %lu bytes", esp_get_free_heap_size());
     
     extern uint32_t mqtt_get_time_ms(void);
     mqttStatus = MQTT_Init(&mqttContext,
@@ -282,7 +282,7 @@ void combined_quic_mqtt_task(void *pvParameters)
     ESP_LOGI(TAG, "  Client ID: %s", connectInfo.pClientIdentifier);
     ESP_LOGI(TAG, "  Clean session: %s", connectInfo.cleanSession ? "true" : "false");
     ESP_LOGI(TAG, "  QUIC connected: %s", quic_client_is_connected() ? "true" : "false");
-    ESP_LOGI(TAG, "  Free heap: %u bytes", esp_get_free_heap_size());
+    ESP_LOGI(TAG, "  Free heap: %lu bytes", esp_get_free_heap_size());
     ESP_LOGI(TAG, "Calling MQTT_Connect with tieout...");
     
     bool sessionPresent = false;
@@ -376,7 +376,7 @@ void combined_quic_mqtt_task(void *pvParameters)
         
         // Check free heap every 50 iterations
         if (loop_count % 50 == 0) {
-            ESP_LOGD(TAG, "Free heap: %u bytes (loop %d)", esp_get_free_heap_size(), loop_count);
+            ESP_LOGD(TAG, "Free heap: %lu bytes (loop %d)", esp_get_free_heap_size(), loop_count);
         }
     }
     
@@ -426,7 +426,7 @@ void app_main(void)
     ESP_LOGI(TAG, "WiFi connected, starting combined QUIC+MQTT task...");
     
     // Log memory status before starting
-    ESP_LOGI(TAG, "Free heap before task creation: %u bytes", esp_get_free_heap_size());
+    ESP_LOGI(TAG, "Free heap before task creation: %lu bytes", esp_get_free_heap_size());
     
     // Create server info for QUIC client
     static ServerInfo_t serverInfo = {

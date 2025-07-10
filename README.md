@@ -31,6 +31,28 @@ RISC-V [ESP32C3](https://www.espressif.com/en/products/socs/esp32-c3).
 3. **MQTT Communication** - Full MQTT protocol operations (connect, publish, subscribe)
 4. **Graceful Shutdown** - Proper connection cleanup and resource management
 
+## Continuous Integration
+
+[![ESP32-QUIC CI](https://github.com/emqx/ESP32-QUIC/workflows/ESP32-QUIC%20CI/badge.svg)](https://github.com/emqx/ESP32-QUIC/actions)
+
+This project includes a comprehensive CI/CD pipeline that:
+
+- **Automated Building**: Builds the project with ESP-IDF for ESP32-C3 target
+- **Matrix Testing**: Tests across multiple ESP-IDF versions (v5.1, v5.2, v6.0)  
+- **Automatic Patching**: Applies wolfSSL and ngtcp2 patches automatically
+- **Artifact Generation**: Produces firmware binaries for each successful build
+- **Quality Checks**: Runs pytest tests and basic code quality validation
+
+### CI Workflows
+
+1. **Main CI** (`ci.yml`) - Primary build and validation
+2. **Matrix Build** (`build-matrix.yml`) - Multi-version compatibility testing  
+3. **Tests** (`test.yml`) - Automated testing and code quality checks
+
+The CI automatically handles the known wolfSSL session cache build issue and applies necessary patches.
+
+For detailed CI documentation, see [CI Documentation](.github/CI.md).
+
 ## Usage Guide
 
 ### Prerequisites

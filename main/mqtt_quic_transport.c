@@ -84,7 +84,7 @@ static bool determine_mqtt_packet_length(NetworkContext_t *context) {
             context->is_mqtt_connect_packet = true;
         }
         
-        ESP_LOGI(TAG, "Determined MQTT packet length: %u bytes (remaining_length=%u, bytes_used=%zu)", 
+        ESP_LOGI(TAG, "Determined MQTT packet length: %lu bytes (remaining_length=%lu, bytes_used=%zu)",
                  context->expected_packet_length, remaining_length, bytes_used);
         return true;
     }
@@ -213,7 +213,7 @@ int32_t mqtt_quic_transport_send(NetworkContext_t *pNetworkContext,
     // Try to determine the packet length if we haven't already
     if (!pNetworkContext->packet_length_determined) {
         if (determine_mqtt_packet_length(pNetworkContext)) {
-            ESP_LOGD(TAG, "Determined packet length: %u bytes", pNetworkContext->expected_packet_length);
+            ESP_LOGD(TAG, "Determined packet length: %lu bytes", pNetworkContext->expected_packet_length);
         } else {
             ESP_LOGD(TAG, "Still determining packet length, need more data");
         }
@@ -224,7 +224,7 @@ int32_t mqtt_quic_transport_send(NetworkContext_t *pNetworkContext,
         pNetworkContext->send_buffer_len >= pNetworkContext->expected_packet_length) {
         
         ESP_LOGD(TAG, "*** COMPLETE MQTT PACKET READY TO SEND ***");
-        ESP_LOGD(TAG, "Expected: %u bytes, Buffered: %zu bytes",
+        ESP_LOGD(TAG, "Expected: %lu bytes, Buffered: %zu bytes",
                  pNetworkContext->expected_packet_length, pNetworkContext->send_buffer_len);
         
         // Send the complete packet
@@ -242,7 +242,7 @@ int32_t mqtt_quic_transport_send(NetworkContext_t *pNetworkContext,
     } else {
         ESP_LOGI(TAG, "Packet not complete yet, continuing to buffer");
         if (pNetworkContext->packet_length_determined) {
-            ESP_LOGD(TAG, "Need %u more bytes",
+            ESP_LOGD(TAG, "Need %lu more bytes",
                      pNetworkContext->expected_packet_length - pNetworkContext->send_buffer_len);
         }
     }

@@ -1,0 +1,73 @@
+name: ESP32-QUIC Build Matrix
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-matrix:
+    name: Build ESP32-QUIC with ESP-IDF ${{ matrix.idf_version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        idf_version: [v5.1, v5.2]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      
+      - name: Build with ESP-IDF ${{ matrix.idf_version }}
+        uses: espressif/esp-idf-ci-action@v1.1.0
+        with:
+          esp_idf_version: ${{ matrix.idf_version }}
+          target: esp32c3
+          command: |
+            # Apply ngtcp2 patch if needed
+            if [ -f "ngtcp2.patch" ] && [ -d "components/ngtcp2/ngtcp2" ]; then
+              echo "Applying ngtcp2 patch"
+              cd components/ngtcp2/ngtcp2
+              git apply ../../../ngtcp2.patch || echo "Patch already applied or not needed"
+              cd ../../..
+            fi
+            
+            # Remove dependencies.lock unconditionally before reconfigure
+            echo "Removing dependencies.lock"
+            rm -f dependencies.lock
+            
+            # Install dependencies first
+            echo "Installing component dependencies..."
+            idf.py reconfigure
+            
+            # Apply wolfSSL patch after component installation if needed
+            WOLFSSL_USER_SETTINGS="managed_components/wolfssl__wolfssl/include/user_settings.h"
+            if [ -f "$WOLFSSL_USER_SETTINGS" ] && grep -q "#define NO_SESSION_CACHE" "$WOLFSSL_USER_SETTINGS"; then
+              echo "Applying wolfSSL patch after component installation"
+              patch -p1 < wolfssl.patch
+              echo "wolfSSL patch applied successfully"
+            fi
+            
+            # Build the project
+            echo "Building ESP32-QUIC project with ESP-IDF ${{ matrix.idf_version }}..."
+            idf.py build
+            
+            # Display build information
+            echo "Build completed successfully!"
+            idf.py size
+      
+      - name: Upload build artifacts for ${{ matrix.idf_version }}
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: esp32-quic-firmware-${{ matrix.idf_version }}
+          path: |
+            build/*.bin
+            build/*.elf
+            build/*.map
+            build/partition_table/
+          retention-days: 7

@@ -1,0 +1,37 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.patch$'
+      - id: end-of-file-fixer
+        exclude: '\.patch$'
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-json
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+
+  # ESP-IDF specific checks
+  - repo: https://github.com/espressif/check-copyright
+    rev: v1.0.3
+    hooks:
+      - id: check-copyright
+        args: ['--ignore', 'build/', '--ignore', 'managed_components/', '--config', 'check_copyright_config.yaml']
+
+  # Python specific (for pytest files)
+  - repo: https://github.com/psf/black
+    rev: 23.3.0
+    hooks:
+      - id: black
+        files: '\.py$'
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.12.0
+    hooks:
+      - id: isort
+        files: '\.py$'

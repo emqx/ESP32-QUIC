@@ -1,0 +1,26 @@
+perform_check: true
+
+# use python regex syntax for file_regex
+file_regex:
+  - \.(c|cpp|cc|h|hpp)$
+  - \.py$
+
+# files which should not be checked
+ignore:
+  - managed_components/
+  - build/
+  - components/ngtcp2/ngtcp2/
+  - components/coreMQTT/coreMQTT/
+
+# license text which should be at the beginning of each source file
+license: |
+  /*
+   * SPDX-FileCopyrightText: 2024 EMQX
+   * SPDX-License-Identifier: MIT
+   */
+
+# Allows to place custom text before license header
+custom_header: |
+  /*
+   * ESP32-QUIC Demo Project
+   */
